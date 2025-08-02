@@ -23,14 +23,33 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/clash-config-updater.git
+git clone https://github.com/sczheng189/clash-config-updater.git
 cd clash-config-updater
+
+# 创建虚拟环境
+python -m venv venv
+
+# 激活虚拟环境
+# Windows:
+venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
 
 # 安装依赖
 pip install -r requirements.txt
 ```
 
 ### 3. 配置
+
+#### 获取 GitHub Token
+
+1. 访问 [GitHub Personal Access Tokens](https://github.com/settings/tokens)
+2. 点击 "Generate new token" → "Generate new token (classic)"
+3. 填写 Note（如 "Clash Config Updater"）
+4. 勾选 `gist` 权限
+5. 点击 "Generate token" 并复制生成的 token
+
+#### 配置环境变量
 
 创建 `.env` 文件（可参考 `.env.example`）：
 
@@ -44,13 +63,13 @@ REUSE_GIST=true
 
 ### 4. 运行
 
-Windows 用户：
-```bash
-run.bat
-```
+确保虚拟环境已激活，然后运行：
 
-其他系统：
 ```bash
+# Windows 用户可以使用批处理脚本
+run.bat
+
+# 或者直接运行
 python app.py
 ```
 
