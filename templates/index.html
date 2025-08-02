@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clash 配置自动更新工具</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-cog"></i> Clash 配置自动更新工具</h1>
+            <p class="subtitle">灵活提取和配置代理节点，生成 Clash 订阅链接</p>
+        </header>
+
+        <main>
+            <!-- URL 输入区域 -->
+            <section class="url-input-section">
+                <h2><i class="fas fa-link"></i> 订阅链接</h2>
+                <div class="input-group">
+                    <textarea id="urlInput" placeholder="粘贴包含订阅链接的文本，系统会自动识别 URL..."></textarea>
+                    <button id="extractBtn" class="btn btn-secondary">
+                        <i class="fas fa-search"></i> 提取 URL
+                    </button>
+                </div>
+            </section>
+
+            <!-- URL 列表 -->
+            <section class="url-list-section">
+                <h2><i class="fas fa-list"></i> URL 列表</h2>
+                <div class="url-list-header">
+                    <span class="url-count">共 <span id="urlCount">0</span> 个链接</span>
+                    <button id="testAllBtn" class="btn btn-small">
+                        <i class="fas fa-heartbeat"></i> 测试所有
+                    </button>
+                </div>
+                <div id="urlList" class="url-list">
+                    <!-- URL 列表将动态生成 -->
+                </div>
+            </section>
+
+            <!-- 节点获取和过滤 -->
+            <section class="node-management-section">
+                <h2><i class="fas fa-network-wired"></i> 节点管理</h2>
+                
+                <!-- 添加自定义节点 -->
+                <div class="custom-nodes-section">
+                    <h3>添加需要链式代理的节点</h3>
+                    <div class="warning-box">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>注意：</strong>此部分导入的节点将<strong>自动启用链式代理</strong>，用于那些需要通过其他节点中转的特殊节点。
+                    </div>
+                    
+                    <!-- 从 URL 获取节点 -->
+                    <div class="custom-nodes-url">
+                        <label>从订阅链接获取（支持多个URL）：</label>
+                        <textarea id="customNodesUrlInput" placeholder="粘贴订阅链接，每行一个 URL，或粘贴包含多个 URL 的文本..."></textarea>
+                        <div class="button-group">
+                            <button id="extractCustomUrlsBtn" class="btn btn-secondary">
+                                <i class="fas fa-search"></i> 提取 URL
+                            </button>
+                            <button id="fetchCustomNodesBtn" class="btn btn-primary">
+                                <i class="fas fa-download"></i> 获取节点
+                            </button>
+                        </div>
+                        <div id="customUrlsList" class="custom-urls-list" style="display: none;">
+                            <!-- URL 列表将动态生成 -->
+                        </div>
+                    </div>
+                    
+                    <div class="divider-text">或者</div>
+                    
+                    <!-- 手动粘贴节点 -->
+                    <div class="custom-nodes-input">
+                        <label>手动粘贴节点配置：</label>
+                        <textarea id="customNodesText" placeholder="粘贴 Clash 格式的节点，支持以下格式：
+- { name: 节点名称, type: ss, server: 1.2.3.4, port: 8388, ... }
+或者：
+- name: 节点名称
+  type: vmess
+  server: example.com
+  port: 443
+  ..."></textarea>
+                        <button id="parseCustomNodesBtn" class="btn btn-secondary">
+                            <i class="fas fa-plus"></i> 添加节点
+                        </button>
+                    </div>
+                </div>
+                
+                <hr style="margin: 30px 0;">
+                
+                <!-- 节点过滤 -->
+                <h3>从订阅获取节点</h3>
+                <div class="filter-options">
+                    <div class="region-filters">
+                        <button class="region-btn active" data-region="hk">
+                            <i class="fas fa-map-marker-alt"></i> 香港
+                        </button>
+                        <button class="region-btn" data-region="tw">
+                            <i class="fas fa-map-marker-alt"></i> 台湾
+                        </button>
+                        <button class="region-btn" data-region="us">
+                            <i class="fas fa-map-marker-alt"></i> 美国
+                        </button>
+                        <button class="region-btn" data-region="sg">
+                            <i class="fas fa-map-marker-alt"></i> 新加坡
+                        </button>
+                        <button class="region-btn" data-region="all">
+                            <i class="fas fa-globe"></i> 全部
+                        </button>
+                    </div>
+                    <div class="custom-filter">
+                        <input type="text" id="customKeywords" placeholder="自定义关键词（用逗号分隔）">
+                    </div>
+                </div>
+                <button id="fetchProxiesBtn" class="btn btn-primary">
+                    <i class="fas fa-download"></i> 获取节点
+                </button>
+            </section>
+
+            <!-- 节点列表 -->
+            <section class="proxy-selection-section" id="proxySelectionSection" style="display: none;">
+                <h2><i class="fas fa-server"></i> 节点列表</h2>
+                <div class="chain-proxy-tips">
+                    <i class="fas fa-info-circle"></i>
+                    <span>点击每个节点右侧的"链式代理"按钮可以为该节点设置链式代理，并自定义 dialer-proxy 目标。</span>
+                    <input type="text" id="defaultDialerProxy" placeholder="dialer-selector" value="dialer-selector" style="width: 150px; margin-left: 10px;">
+                    <small>（默认值）</small>
+                </div>
+                <div class="proxy-selection-header">
+                    <span class="proxy-count">
+                        已选择 <span id="selectedProxyCount">0</span> / <span id="totalProxyCount">0</span> 个节点
+                        | 链式代理 <span id="chainedProxyCount">0</span> 个
+                    </span>
+                    <div class="selection-controls">
+                        <button id="selectAllBtn" class="btn btn-small">全选</button>
+                        <button id="deselectAllBtn" class="btn btn-small">取消全选</button>
+                        <button id="invertSelectionBtn" class="btn btn-small">反选</button>
+                    </div>
+                </div>
+                <div id="proxyList" class="proxy-list">
+                    <!-- 节点列表将动态生成 -->
+                </div>
+                <!-- 保存的配置 -->
+                <div class="saved-config-controls" style="margin-top: 20px;">
+                    <button id="loadConfigBtn" class="btn btn-small">
+                        <i class="fas fa-download"></i> 加载配置
+                    </button>
+                    <button id="saveConfigBtn" class="btn btn-small" title="保存所有节点和配置到本地">
+                        <i class="fas fa-save"></i> 保存所有配置
+                    </button>
+                    <button id="clearConfigBtn" class="btn btn-small btn-danger" title="清除所有保存的节点和配置">
+                        <i class="fas fa-trash"></i> 清除所有配置
+                    </button>
+                </div>
+            </section>
+
+            <!-- 配置选项 -->
+            <section class="config-section">
+                <h2><i class="fas fa-sliders-h"></i> 上传配置</h2>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label for="githubToken">GitHub Token:</label>
+                        <input type="password" id="githubToken" placeholder="输入 GitHub Token（如果未在 .env 中配置）">
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            <input type="checkbox" id="reuseGist">
+                            重用 Gist（保持订阅链接不变）
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 操作按钮 -->
+            <section class="action-section">
+                <button id="generateConfigBtn" class="btn btn-primary btn-large" disabled>
+                    <i class="fas fa-magic"></i> 生成配置
+                </button>
+            </section>
+
+            <!-- 处理结果 -->
+            <section class="result-section" id="resultSection" style="display: none;">
+                <h2><i class="fas fa-clipboard-check"></i> 处理结果</h2>
+                <div class="result-content">
+                    <div id="resultMessage"></div>
+                    <div class="subscription-url" id="subscriptionUrl" style="display: none;">
+                        <label>订阅链接：</label>
+                        <div class="url-display">
+                            <input type="text" id="subscriptionInput" readonly>
+                            <button id="copyBtn" class="btn btn-secondary">
+                                <i class="fas fa-copy"></i> 复制
+                            </button>
+                        </div>
+                    </div>
+                    <div id="processDetails"></div>
+                </div>
+            </section>
+
+            <!-- 历史 URL -->
+            <section class="history-section">
+                <h2><i class="fas fa-history"></i> 历史 URL</h2>
+                <div id="historyList" class="history-list">
+                    <!-- 历史 URL 将动态加载 -->
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Made with <i class="fas fa-heart"></i> by Clash Config Updater</p>
+        </footer>
+    </div>
+
+    <!-- 加载动画 -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">处理中...</div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div id="toast" class="toast"></div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
