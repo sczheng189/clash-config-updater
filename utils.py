@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import yaml
+import re
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 from subscription_parser import SubscriptionParser
@@ -197,8 +198,13 @@ class ClashConfigManager:
             # 其他类型尝试直接转换
             return f'{key}: {value}'
         
-    def merge_proxies_to_template(self, proxies: List[Dict[str, Any]]) -> str:
-        """将代理节点合并到模板中"""
+    def merge_proxies_to_template(self, proxies: List[Dict[str, Any]], chained_config: Dict[str, str] = None) -> str:
+        """将代理节点合并到模板中
+        
+        Args:
+            proxies: 代理节点列表
+            chained_config: 链式代理配置，用于生成 exclude-filter
+        """
         # 读取模板文件
         with open(self.template_file, 'r', encoding='utf-8') as f:
             template_lines = f.readlines()
@@ -233,6 +239,17 @@ class ClashConfigManager:
             proxy_line = '  - { ' + ', '.join(items) + ' }'
             proxy_yaml_lines.append(proxy_line)
             
+        # 如果有链式代理配置，收集需要排除的节点名称
+        exclude_names = []
+        if chained_config:
+            for proxy in proxies:
+                if proxy.get('_id') in chained_config and 'dialer-proxy' in proxy:
+                    # 对节点名称进行转义，处理特殊字符
+                    name = proxy.get('name', '')
+                    # 转义正则表达式特殊字符
+                    escaped_name = re.escape(name)
+                    exclude_names.append(escaped_name)
+        
         # 查找需要插入节点的位置
         result_lines = []
         i = 0
@@ -240,7 +257,17 @@ class ClashConfigManager:
         
         while i < len(template_lines):
             line = template_lines[i]
-            result_lines.append(line)
+            
+            # 检查是否是 exclude-filter 行
+            if 'exclude-filter:' in line and exclude_names:
+                # 生成新的 exclude-filter 行
+                exclude_pattern = '|'.join(exclude_names)
+                # 保持原有的缩进
+                indent = line[:len(line) - len(line.lstrip())]
+                new_line = f'{indent}exclude-filter: "{exclude_pattern}"\n'
+                result_lines.append(new_line)
+            else:
+                result_lines.append(line)
             
             # 检查是否是 proxies: 行
             if line.strip() == 'proxies:' and not proxies_added:
@@ -450,7 +477,7 @@ class ClashConfigManager:
                 self.save_chained_proxy_config(config)
                 
             # 生成配置
-            merged_config = self.merge_proxies_to_template(all_nodes)
+            merged_config = self.merge_proxies_to_template(all_nodes, chained_config)
             
             # 上传到 Gist
             gist_url = self.upload_to_gist(merged_config, github_token, reuse_gist)

@@ -25,7 +25,7 @@ proxy-groups:
 
   - name: dialer-selector
     include-all: true
-    exclude-filter: "ZGO美国原生|美国家宽|微软云|谷歌云"
+    exclude-filter: ""
     type: select
     proxies: 
       - 香港负载均衡
