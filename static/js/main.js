@@ -668,6 +668,8 @@ async function fetchCustomNodesFromUrl() {
                 chainedConfig[node._id] = defaultDialer;
             });
             
+            // 注意：不自动选中这些节点，让用户手动选择
+            
             // 清空输入
             getElement('customNodesUrlInput').value = '';
             customUrlList = [];
@@ -722,6 +724,8 @@ async function parseCustomNodes() {
                 chainedConfig[node._id] = defaultDialer;
             });
             
+            // 注意：不自动选中这些节点，让用户手动选择
+            
             // 清空输入
             getElement('customNodesText').value = '';
             
@@ -756,7 +760,30 @@ function displayProxies() {
         return;
     }
     
-    getElement('proxyList').innerHTML = allNodes.map(proxy => {
+    // 对节点进行排序：链式代理节点在前，自定义节点在前，其他节点在后
+    const sortedNodes = allNodes.sort((a, b) => {
+        const aIsChained = chainedConfig.hasOwnProperty(a._id);
+        const bIsChained = chainedConfig.hasOwnProperty(b._id);
+        const aIsCustom = a.is_custom || false;
+        const bIsCustom = b.is_custom || false;
+        
+        // 优先级：链式代理 > 自定义节点 > 普通节点
+        if (aIsChained && !bIsChained) return -1;
+        if (!aIsChained && bIsChained) return 1;
+        if (aIsChained && bIsChained) {
+            // 都是链式代理，按自定义优先
+            if (aIsCustom && !bIsCustom) return -1;
+            if (!aIsCustom && bIsCustom) return 1;
+            return 0;
+        }
+        
+        // 都不是链式代理，按自定义优先
+        if (aIsCustom && !bIsCustom) return -1;
+        if (!aIsCustom && bIsCustom) return 1;
+        return 0;
+    });
+    
+    getElement('proxyList').innerHTML = sortedNodes.map(proxy => {
         const isSelected = selectedProxies.some(p => p._id === proxy._id);
         const isChained = chainedConfig.hasOwnProperty(proxy._id);
         const dialerProxy = chainedConfig[proxy._id] || getElement('defaultDialerProxy').value || 'dialer-selector';
@@ -936,6 +963,7 @@ async function saveChainedProxyConfig() {
         showLoading('正在保存配置...');
         
         const config = {
+            // 保存所有自定义节点（不管是否选中，因为用户可能后续需要）
             custom_nodes: customNodes,
             chained_nodes: chainedConfig,
             // 新增：保存所有从订阅获取的节点
@@ -1025,8 +1053,8 @@ async function clearChainedProxyConfig() {
 
 // 生成配置
 async function generateConfig() {
-    if (selectedProxies.length === 0 && customNodes.length === 0) {
-        showToast('请至少选择一个节点或添加自定义节点', 'error');
+    if (selectedProxies.length === 0) {
+        showToast('请至少选择一个节点', 'error');
         return;
     }
     
@@ -1046,15 +1074,16 @@ async function generateConfig() {
     try {
         showLoading('正在生成配置...');
         
-        // 过滤掉 selectedProxies 中的自定义节点，避免重复
+        // 分离选中的常规节点和自定义节点
         const selectedNonCustomProxies = selectedProxies.filter(proxy => !proxy.is_custom);
+        const selectedCustomNodes = selectedProxies.filter(proxy => proxy.is_custom);
         
         const response = await fetch('/api/generate-config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                selected_proxies: selectedNonCustomProxies,  // 只包含非自定义节点
-                custom_nodes: customNodes,  // 所有自定义节点
+                selected_proxies: selectedNonCustomProxies,  // 只包含选中的非自定义节点
+                custom_nodes: selectedCustomNodes,  // 只包含选中的自定义节点
                 chained_config: chainedConfig,
                 github_token: githubToken,
                 reuse_gist: reuseGist,
@@ -1068,8 +1097,30 @@ async function generateConfig() {
         displayResult(data);
         
         if (data.success) {
-            // 重新加载历史
+            // 重新加载历史和 Gist 列表
             loadHistory();
+            await loadGists();  // 热加载 Gist 列表，确保新创建的 Gist 立即可见
+            
+            // 如果创建了新 Gist，自动选中它以便下次重用
+            if (!data.reuse_gist && data.gist_name) {
+                // 检查是否在 "重用 Gist" 模式下
+                const reuseGist = getElement('reuseGist').checked;
+                if (!reuseGist) {
+                    // 如果当前不在重用模式，询问用户是否切换到重用模式
+                    const switchToReuse = confirm(`成功创建新 Gist "${data.gist_name}"！\n\n是否切换到重用模式以便下次更新此 Gist？`);
+                    if (switchToReuse) {
+                        getElement('reuseGist').checked = true;
+                        toggleGistOptions();  // 更新界面显示
+                        getElement('gistSelector').value = data.gist_name;
+                        currentGist = data.gist_name;
+                        showToast(`已切换到重用模式，选中 "${data.gist_name}"`, 'success');
+                    }
+                } else {
+                    // 如果已经在重用模式，直接选中新创建的 Gist
+                    getElement('gistSelector').value = data.gist_name;
+                    currentGist = data.gist_name;
+                }
+            }
         }
     } catch (error) {
         showToast('生成配置失败: ' + error.message, 'error');

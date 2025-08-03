@@ -422,7 +422,7 @@ class ClashConfigManager:
             return True
         return False
         
-    def upload_to_gist(self, content: str, github_token: str, reuse_gist: bool = False, gist_name: str = None) -> str:
+    def upload_to_gist(self, content: str, github_token: str, reuse_gist: bool = False, gist_name: str = None) -> tuple:
         """上传内容到 GitHub Gist"""
         headers = {
             'Authorization': f'token {github_token}',
@@ -498,7 +498,7 @@ class ClashConfigManager:
                     filename = parts[1].split('/')[-1]  # 获取文件名
                     raw_url = f"{base_url}/raw/{filename}"
             
-            return raw_url
+            return raw_url, gist_name
         except Exception as e:
             raise Exception(f"上传 Gist 失败: {str(e)}")
             
@@ -604,11 +604,13 @@ class ClashConfigManager:
             merged_config = self.merge_proxies_to_template(all_nodes, chained_config)
             
             # 上传到 Gist
-            gist_url = self.upload_to_gist(merged_config, github_token, reuse_gist, gist_name)
+            gist_url, actual_gist_name = self.upload_to_gist(merged_config, github_token, reuse_gist, gist_name)
             
             result['success'] = True
             result['message'] = f"成功生成配置，包含 {len(all_nodes)} 个节点"
             result['subscription_url'] = gist_url
+            result['gist_name'] = actual_gist_name  # 返回实际使用的 Gist 名称
+            result['reuse_gist'] = reuse_gist  # 返回是否重用了现有 Gist
             result['details'] = {
                 'total_nodes': len(all_nodes),
                 'selected_nodes': len(selected_proxies),
