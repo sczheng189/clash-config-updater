@@ -23,9 +23,11 @@ build/
 # IDE
 .vscode/
 .idea/
-*.swp
+*.swp/
 *.swo
 *~
+*.claude
+*.roo
 
 # Project specific
 .gist_id

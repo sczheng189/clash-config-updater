@@ -33,9 +33,43 @@ def index():
 @app.route('/api/urls', methods=['GET'])
 @handle_api_errors
 def get_saved_urls():
-    """获取保存的 URL 历史"""
-    urls = config_manager.load_saved_urls()
-    return jsonify({'success': True, 'urls': urls})
+    """获取保存的 URL 历史（包含别名）"""
+    urls_data = config_manager.load_saved_urls()
+    return jsonify({'success': True, 'urls': urls_data})
+
+@app.route('/api/urls/<path:url>', methods=['DELETE'])
+@handle_api_errors
+def delete_url(url):
+    """删除指定的 URL 历史"""
+    import urllib.parse
+    
+    # URL 解码
+    decoded_url = urllib.parse.unquote(url)
+    
+    if config_manager.delete_url(decoded_url):
+        return jsonify({'success': True, 'message': 'URL 已删除'})
+    else:
+        return jsonify({'success': False, 'error': 'URL 不存在'})
+
+@app.route('/api/urls/<path:url>/alias', methods=['PUT'])
+@handle_api_errors
+def update_url_alias(url):
+    """更新URL的别名"""
+    import urllib.parse
+    
+    # URL 解码
+    decoded_url = urllib.parse.unquote(url)
+    
+    data = request.get_json()
+    new_alias = data.get('alias', '').strip()
+    
+    if not new_alias:
+        return jsonify({'success': False, 'error': '别名不能为空'})
+    
+    if config_manager.update_url_alias(decoded_url, new_alias):
+        return jsonify({'success': True, 'message': '别名已更新'})
+    else:
+        return jsonify({'success': False, 'error': 'URL 不存在'})
 
 @app.route('/api/test-urls', methods=['POST'])
 @handle_api_errors
@@ -63,6 +97,7 @@ def extract_urls():
     
     data = request.get_json()
     text = data.get('text', '')
+    include_aliases = data.get('include_aliases', False)
     
     # URL 正则表达式
     url_pattern = r'https?://[^\s<>"{}|\\^\[\]`]+'
@@ -70,6 +105,17 @@ def extract_urls():
     
     # 去重
     urls = list(set(urls))
+    
+    # 如果需要包含别名信息
+    if include_aliases:
+        urls_with_aliases = []
+        for url in urls:
+            alias = config_manager.generate_default_alias(url)
+            urls_with_aliases.append({
+                'url': url,
+                'alias': alias
+            })
+        return jsonify({'success': True, 'urls': urls_with_aliases})
     
     return jsonify({'success': True, 'urls': urls})
 

@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 from subscription_parser import SubscriptionParser
+from urllib.parse import urlparse
 
 
 class ClashConfigManager:
@@ -17,6 +18,15 @@ class ClashConfigManager:
         'tw': ['台湾', 'tw', 'taiwan', '🇹🇼', 'TW', 'Taiwan', '台北', 'taipei'],
         'us': ['美国', 'us', 'usa', 'united states', '🇺🇸', 'US', 'USA', 'America', '美國'],
         'sg': ['新加坡', 'sg', 'singapore', '🇸🇬', 'SG', 'Singapore', '狮城']
+    }
+    
+    # 常见订阅服务的友好名称映射
+    KNOWN_SERVICES = {
+        'zlsub': 'ZL订阅',
+        'isufe': 'ISUFE订阅',
+        'xn--cp3a08l': '订阅服务',
+        'baiqiandao': '百千道订阅',
+        '52pokemon': '52Pokemon订阅'
     }
     
     def __init__(self):
@@ -43,19 +53,147 @@ class ClashConfigManager:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
-    def load_saved_urls(self) -> List[str]:
-        """加载保存的 URL 历史"""
-        data = self._read_json_file(self.urls_file, {'urls': []})
+    def _migrate_url_data(self, data: dict) -> dict:
+        """迁移旧版本URL数据到新格式"""
+        # 检查是否是旧格式（没有version字段或urls是字符串列表）
+        if 'version' not in data or (isinstance(data.get('urls', []), list) and
+                                    len(data.get('urls', [])) > 0 and
+                                    isinstance(data.get('urls', [])[0], str)):
+            # 迁移到新格式
+            old_urls = data.get('urls', [])
+            new_urls = []
+            for url in old_urls:
+                new_urls.append({
+                    'url': url,
+                    'alias': self.generate_default_alias(url),
+                    'auto_alias': self.generate_default_alias(url),
+                    'added_at': data.get('updated', datetime.now().isoformat())
+                })
+            
+            return {
+                'version': '2.0',
+                'urls': new_urls,
+                'updated': data.get('updated', datetime.now().isoformat())
+            }
+        return data
+    
+    def generate_default_alias(self, url: str) -> str:
+        """生成URL的默认别名"""
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            
+            # 移除常见的前缀
+            domain = domain.replace('www.', '')
+            
+            # 检查是否是已知服务
+            for key, friendly_name in self.KNOWN_SERVICES.items():
+                if key in domain:
+                    return friendly_name
+            
+            # 提取主域名部分
+            parts = domain.split('.')
+            if len(parts) >= 2:
+                # 取主域名部分
+                main_domain = parts[0]
+                # 限制长度
+                if len(main_domain) > 15:
+                    main_domain = main_domain[:15] + '...'
+                return f"{main_domain}订阅"
+            else:
+                return f"{domain[:20]}订阅"
+                
+        except Exception:
+            # 如果解析失败，使用URL的一部分
+            return f"订阅_{url[:20]}..."
+        
+    def load_saved_urls(self) -> List[Dict[str, str]]:
+        """加载保存的 URL 历史（新格式）"""
+        data = self._read_json_file(self.urls_file, {'version': '2.0', 'urls': []})
+        # 迁移旧数据
+        data = self._migrate_url_data(data)
         return data.get('urls', [])
+    
+    def load_saved_urls_simple(self) -> List[str]:
+        """加载保存的 URL 历史（仅返回URL字符串列表，用于兼容）"""
+        urls_data = self.load_saved_urls()
+        return [item['url'] for item in urls_data]
         
     def save_urls(self, urls: List[str]):
         """保存 URL 到历史记录"""
-        existing_urls = self.load_saved_urls()
-        # 合并新旧 URL，去重
-        all_urls = list(set(existing_urls + urls))
+        existing_data = self.load_saved_urls()
+        existing_url_map = {item['url']: item for item in existing_data}
         
-        data = {'urls': all_urls, 'updated': datetime.now().isoformat()}
+        # 处理新URL
+        for url in urls:
+            if url not in existing_url_map:
+                # 新URL，生成默认别名
+                alias = self.generate_default_alias(url)
+                existing_url_map[url] = {
+                    'url': url,
+                    'alias': alias,
+                    'auto_alias': alias,
+                    'added_at': datetime.now().isoformat()
+                }
+        
+        # 转换回列表
+        all_urls = list(existing_url_map.values())
+        
+        data = {
+            'version': '2.0',
+            'urls': all_urls,
+            'updated': datetime.now().isoformat()
+        }
         self._write_json_file(self.urls_file, data)
+        
+    def delete_url(self, url: str) -> bool:
+        """从历史记录中删除指定的URL
+        
+        Args:
+            url: 要删除的URL
+            
+        Returns:
+            是否删除成功
+        """
+        existing_data = self.load_saved_urls()
+        
+        # 找到并删除对应的URL
+        original_length = len(existing_data)
+        existing_data = [item for item in existing_data if item['url'] != url]
+        
+        if len(existing_data) < original_length:
+            data = {
+                'version': '2.0',
+                'urls': existing_data,
+                'updated': datetime.now().isoformat()
+            }
+            self._write_json_file(self.urls_file, data)
+            return True
+        return False
+    
+    def update_url_alias(self, url: str, new_alias: str) -> bool:
+        """更新URL的别名
+        
+        Args:
+            url: URL地址
+            new_alias: 新的别名
+            
+        Returns:
+            是否更新成功
+        """
+        existing_data = self.load_saved_urls()
+        
+        for item in existing_data:
+            if item['url'] == url:
+                item['alias'] = new_alias
+                data = {
+                    'version': '2.0',
+                    'urls': existing_data,
+                    'updated': datetime.now().isoformat()
+                }
+                self._write_json_file(self.urls_file, data)
+                return True
+        return False
             
     def test_url_availability(self, url: str) -> Tuple[bool, str]:
         """测试 URL 是否可用"""
@@ -143,6 +281,8 @@ class ClashConfigManager:
         
     def save_chained_proxy_config(self, config: Dict[str, Any]):
         """保存链式代理配置"""
+        # 清理无效的引用
+        config = self._clean_chained_config(config)
         config['updated'] = datetime.now().isoformat()
         self._write_json_file(self.chained_config_file, config)
             
@@ -161,6 +301,52 @@ class ClashConfigManager:
             if node_id in chained_config:
                 node['dialer-proxy'] = chained_config[node_id]
         return nodes
+        
+    def _clean_chained_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """清理链式代理配置中的无效引用
+        
+        Args:
+            config: 包含 custom_nodes, chained_nodes, selected_proxy_ids 等的配置
+            
+        Returns:
+            清理后的配置
+        """
+        # 收集所有有效的节点ID
+        valid_ids = set()
+        
+        # 从 all_proxies 收集ID
+        for proxy in config.get('all_proxies', []):
+            if '_id' in proxy:
+                valid_ids.add(proxy['_id'])
+                
+        # 从 custom_nodes 收集ID
+        for node in config.get('custom_nodes', []):
+            if '_id' in node:
+                valid_ids.add(node['_id'])
+        
+        # 清理 chained_nodes - 只保留存在的节点的链式代理配置
+        old_chained = config.get('chained_nodes', {})
+        cleaned_chained = {}
+        for node_id, dialer in old_chained.items():
+            if node_id in valid_ids:
+                cleaned_chained[node_id] = dialer
+        config['chained_nodes'] = cleaned_chained
+        
+        # 清理 selected_proxy_ids - 只保留存在的节点ID
+        old_selected = config.get('selected_proxy_ids', [])
+        cleaned_selected = []
+        for proxy_id in old_selected:
+            if proxy_id in valid_ids:
+                cleaned_selected.append(proxy_id)
+        config['selected_proxy_ids'] = cleaned_selected
+        
+        # 记录清理信息（用于调试）
+        removed_chained = len(old_chained) - len(cleaned_chained)
+        removed_selected = len(old_selected) - len(cleaned_selected)
+        if removed_chained > 0 or removed_selected > 0:
+            print(f"清理了 {removed_chained} 个无效的链式代理配置，{removed_selected} 个无效的选中节点ID")
+        
+        return config
         
     def _format_yaml_value(self, key: str, value: Any) -> Optional[str]:
         """格式化 YAML 值"""
@@ -196,6 +382,46 @@ class ClashConfigManager:
         else:
             # 其他类型尝试直接转换
             return f'{key}: {value}'
+            
+    def _escape_for_yaml_regex(self, name: str) -> str:
+        """为 YAML 中的正则表达式智能转义节点名称
+        
+        Args:
+            name: 节点名称
+            
+        Returns:
+            转义后的名称，适用于 YAML 双引号字符串中的正则表达式
+        """
+        # 定义需要在正则表达式中转义的特殊字符
+        # 注意：这里只包含真正需要转义的字符
+        regex_special_chars = {
+            '.': True,  # 匹配任意字符
+            '^': True,  # 行首
+            '$': True,  # 行尾
+            '*': True,  # 零次或多次
+            '+': True,  # 一次或多次
+            '?': True,  # 零次或一次
+            '{': True,  # 量词开始
+            '}': True,  # 量词结束
+            '[': True,  # 字符类开始
+            ']': True,  # 字符类结束
+            '(': True,  # 分组开始
+            ')': True,  # 分组结束
+            '|': True,  # 或操作
+            '\\': True, # 反斜杠本身
+            # 注意：- 在字符类外部不是特殊字符，不需要转义
+        }
+        
+        escaped = ""
+        for char in name:
+            if char in regex_special_chars:
+                # 在 YAML 双引号字符串中，反斜杠需要双重转义
+                escaped += "\\\\" + char
+            else:
+                # 普通字符直接添加，不需要转义
+                escaped += char
+        
+        return escaped
         
     def merge_proxies_to_template(self, proxies: List[Dict[str, Any]], chained_config: Dict[str, str] = None) -> str:
         """将代理节点合并到模板中
@@ -243,10 +469,10 @@ class ClashConfigManager:
         if chained_config:
             for proxy in proxies:
                 if proxy.get('_id') in chained_config and 'dialer-proxy' in proxy:
-                    # 对节点名称进行转义，处理特殊字符
+                    # 对节点名称进行智能转义
                     name = proxy.get('name', '')
-                    # 转义正则表达式特殊字符
-                    escaped_name = re.escape(name)
+                    # 使用智能转义，避免YAML解析错误
+                    escaped_name = self._escape_for_yaml_regex(name)
                     exclude_names.append(escaped_name)
         
         # 查找需要插入节点的位置
@@ -265,6 +491,8 @@ class ClashConfigManager:
                 indent = line[:len(line) - len(line.lstrip())]
                 new_line = f'{indent}exclude-filter: "{exclude_pattern}"\n'
                 result_lines.append(new_line)
+                # 调试信息
+                print(f"[DEBUG] Generated exclude-filter: {new_line.strip()}")
             else:
                 result_lines.append(line)
             
@@ -582,12 +810,43 @@ class ClashConfigManager:
             if chained_config is None:
                 chained_config = {}
                 
+            # 收集所有有效节点的ID
+            valid_node_ids = set()
+            for proxy in selected_proxies:
+                if '_id' in proxy:
+                    valid_node_ids.add(proxy['_id'])
+            for node in custom_nodes:
+                if '_id' in node:
+                    valid_node_ids.add(node['_id'])
+                    
+            # 清理 chained_config，只保留有效节点的配置
+            cleaned_chained_config = {}
+            for node_id, dialer in chained_config.items():
+                if node_id in valid_node_ids:
+                    cleaned_chained_config[node_id] = dialer
+                    
             # 应用 dialer-proxy 配置
-            selected_proxies = self.apply_dialer_proxy_config(selected_proxies, chained_config)
-            custom_nodes = self.apply_dialer_proxy_config(custom_nodes, chained_config)
+            selected_proxies = self.apply_dialer_proxy_config(selected_proxies, cleaned_chained_config)
+            custom_nodes = self.apply_dialer_proxy_config(custom_nodes, cleaned_chained_config)
             
             # 合并所有节点
             all_nodes = selected_proxies + custom_nodes
+            
+            # 对节点进行排序：链式代理节点在前，自定义节点次之，普通节点在后
+            def sort_key(node):
+                is_chained = node.get('_id', '') in cleaned_chained_config
+                is_custom = node.get('is_custom', False)
+                
+                # 返回元组用于排序：(链式代理优先级, 自定义节点优先级)
+                # 数字越小，优先级越高
+                if is_chained:
+                    return (0, 0 if is_custom else 1)  # 链式代理最优先，其中自定义的更优先
+                elif is_custom:
+                    return (1, 0)  # 非链式的自定义节点次之
+                else:
+                    return (2, 0)  # 普通节点最后
+            
+            all_nodes.sort(key=sort_key)
             
             if not all_nodes:
                 result['message'] = "没有任何节点需要处理"
@@ -597,11 +856,14 @@ class ClashConfigManager:
             if save_config:
                 config = self.load_chained_proxy_config()
                 config['custom_nodes'] = custom_nodes
-                config['chained_nodes'] = chained_config
+                config['chained_nodes'] = cleaned_chained_config  # 使用清理后的配置
+                # 保存所有代理节点和选中的节点ID（用于后续清理）
+                config['all_proxies'] = selected_proxies
+                config['selected_proxy_ids'] = [p['_id'] for p in all_nodes if '_id' in p]
                 self.save_chained_proxy_config(config)
                 
             # 生成配置
-            merged_config = self.merge_proxies_to_template(all_nodes, chained_config)
+            merged_config = self.merge_proxies_to_template(all_nodes, cleaned_chained_config)
             
             # 上传到 Gist
             gist_url, actual_gist_name = self.upload_to_gist(merged_config, github_token, reuse_gist, gist_name)

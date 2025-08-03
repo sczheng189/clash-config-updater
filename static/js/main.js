@@ -364,10 +364,69 @@ async function loadHistory() {
 }
 
 // 显示历史 URL
-function displayHistory(urls) {
-    getElement('historyList').innerHTML = urls.map(url => 
-        `<div class="history-item" onclick="addUrlFromHistory('${url}')">${url}</div>`
-    ).join('');
+function displayHistory(urlsData) {
+    // 兼容处理：检查是旧格式（字符串数组）还是新格式（对象数组）
+    const isNewFormat = urlsData.length > 0 && typeof urlsData[0] === 'object';
+    
+    if (isNewFormat) {
+        // 新格式：显示别名和URL
+        getElement('historyList').innerHTML = urlsData.map(item =>
+            `<div class="history-item">
+                <div class="history-content">
+                    <div class="history-alias-row">
+                        <span class="history-alias" onclick="addUrlFromHistory('${escapeHtml(item.url)}')">${escapeHtml(item.alias)}</span>
+                        <button class="history-edit-btn" onclick="editUrlAlias('${escapeHtml(item.url)}', '${escapeHtml(item.alias)}')" title="编辑别名">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                    </div>
+                    <span class="history-url-text" onclick="addUrlFromHistory('${escapeHtml(item.url)}')">${escapeHtml(item.url)}</span>
+                </div>
+                <button class="history-delete-btn" onclick="deleteUrlFromHistory('${escapeHtml(item.url)}')" title="删除">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>`
+        ).join('');
+    } else {
+        // 旧格式：只显示URL（向后兼容）
+        getElement('historyList').innerHTML = urlsData.map(url =>
+            `<div class="history-item">
+                <span class="history-url" onclick="addUrlFromHistory('${escapeHtml(url)}')">${escapeHtml(url)}</span>
+                <button class="history-delete-btn" onclick="deleteUrlFromHistory('${escapeHtml(url)}')" title="删除">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>`
+        ).join('');
+    }
+}
+
+// 编辑URL别名
+async function editUrlAlias(url, currentAlias) {
+    const newAlias = prompt('请输入新的别名：', currentAlias);
+    
+    if (newAlias && newAlias !== currentAlias) {
+        try {
+            showLoading('正在更新别名...');
+            
+            const response = await fetch(`/api/urls/${encodeURIComponent(url)}/alias`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ alias: newAlias })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showToast('别名已更新', 'success');
+                loadHistory(); // 重新加载历史列表
+            } else {
+                showToast('更新失败: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showToast('更新失败: ' + error.message, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
 }
 
 // 从历史添加 URL
@@ -375,6 +434,35 @@ function addUrlFromHistory(url) {
     const currentText = getElement('urlInput').value;
     getElement('urlInput').value = currentText ? `${currentText}\n${url}` : url;
     extractUrls();
+}
+
+// 从历史删除 URL
+async function deleteUrlFromHistory(url) {
+    if (!confirm(`确定要删除此URL吗？\n${url}`)) {
+        return;
+    }
+    
+    try {
+        showLoading('正在删除...');
+        
+        const response = await fetch(`/api/urls/${encodeURIComponent(url)}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('URL 已删除', 'success');
+            loadHistory(); // 重新加载历史列表
+        } else {
+            showToast('删除失败: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showToast('删除失败: ' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
 }
 
 // 提取 URL
@@ -393,13 +481,25 @@ async function extractUrls() {
         const response = await fetch('/api/extract-urls', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text })
+            body: JSON.stringify({ text, include_aliases: true })
         });
         
         const data = await response.json();
         
         if (data.success) {
-            urlList = data.urls.map(url => ({ url, selected: true, status: '' }));
+            // 处理返回的数据，兼容新旧格式
+            if (data.urls.length > 0 && typeof data.urls[0] === 'object') {
+                // 新格式：包含别名
+                urlList = data.urls.map(item => ({
+                    url: item.url,
+                    alias: item.alias,
+                    selected: true,
+                    status: ''
+                }));
+            } else {
+                // 旧格式：只有URL字符串
+                urlList = data.urls.map(url => ({ url, selected: true, status: '' }));
+            }
             updateUrlList();
         } else {
             showToast('提取 URL 失败: ' + data.error, 'error');
@@ -668,7 +768,8 @@ async function fetchCustomNodesFromUrl() {
                 chainedConfig[node._id] = defaultDialer;
             });
             
-            // 注意：不自动选中这些节点，让用户手动选择
+            // 自动选中这些导入的节点
+            selectedProxies = selectedProxies.concat(data.proxies);
             
             // 清空输入
             getElement('customNodesUrlInput').value = '';
@@ -724,7 +825,8 @@ async function parseCustomNodes() {
                 chainedConfig[node._id] = defaultDialer;
             });
             
-            // 注意：不自动选中这些节点，让用户手动选择
+            // 自动选中这些导入的节点
+            selectedProxies = selectedProxies.concat(data.nodes);
             
             // 清空输入
             getElement('customNodesText').value = '';
@@ -805,12 +907,20 @@ function displayProxies() {
                     </div>
                 </div>
                 <div class="chain-controls" onclick="event.stopPropagation()">
-                    <button class="chain-toggle ${isChained ? 'active' : ''}" 
+                    ${proxy.is_custom ? `
+                        <button class="custom-node-btn edit" onclick="editCustomNode('${proxy._id}')" title="编辑节点">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="custom-node-btn delete" onclick="deleteCustomNode('${proxy._id}')" title="删除节点">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    ` : ''}
+                    <button class="chain-toggle ${isChained ? 'active' : ''}"
                             onclick="toggleChainedProxy('${proxy._id}')">
                         <i class="fas fa-link"></i> 链式代理
                     </button>
                     ${isChained ? `
-                        <input type="text" class="dialer-input" 
+                        <input type="text" class="dialer-input"
                                value="${dialerProxy}"
                                placeholder="dialer-selector"
                                onclick="event.stopPropagation()"
@@ -833,6 +943,10 @@ function toggleProxy(proxyId) {
         selectedProxies.push(proxy);
     } else {
         selectedProxies.splice(index, 1);
+        // 当取消选择节点时，同时清理链式代理配置
+        if (chainedConfig.hasOwnProperty(proxyId)) {
+            delete chainedConfig[proxyId];
+        }
     }
     
     displayProxies();
@@ -866,6 +980,8 @@ function selectAllProxies(select) {
         selectedProxies = [...allNodes];
     } else {
         selectedProxies = [];
+        // 清空所有链式代理配置
+        chainedConfig = {};
     }
     displayProxies();
 }
@@ -962,10 +1078,19 @@ async function saveChainedProxyConfig() {
     try {
         showLoading('正在保存配置...');
         
+        // 在保存前清理 chainedConfig
+        const allNodeIds = [...allProxies, ...customNodes].map(p => p._id);
+        const cleanedChainedConfig = {};
+        for (const [nodeId, dialer] of Object.entries(chainedConfig)) {
+            if (allNodeIds.includes(nodeId)) {
+                cleanedChainedConfig[nodeId] = dialer;
+            }
+        }
+        
         const config = {
             // 保存所有自定义节点（不管是否选中，因为用户可能后续需要）
             custom_nodes: customNodes,
-            chained_nodes: chainedConfig,
+            chained_nodes: cleanedChainedConfig,  // 使用清理后的配置
             // 新增：保存所有从订阅获取的节点
             all_proxies: allProxies,
             // 新增：保存选中的节点ID列表
@@ -1078,13 +1203,22 @@ async function generateConfig() {
         const selectedNonCustomProxies = selectedProxies.filter(proxy => !proxy.is_custom);
         const selectedCustomNodes = selectedProxies.filter(proxy => proxy.is_custom);
         
+        // 清理 chainedConfig，只保留选中节点的配置
+        const selectedProxyIds = selectedProxies.map(p => p._id);
+        const cleanedChainedConfig = {};
+        for (const [nodeId, dialer] of Object.entries(chainedConfig)) {
+            if (selectedProxyIds.includes(nodeId)) {
+                cleanedChainedConfig[nodeId] = dialer;
+            }
+        }
+        
         const response = await fetch('/api/generate-config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 selected_proxies: selectedNonCustomProxies,  // 只包含选中的非自定义节点
                 custom_nodes: selectedCustomNodes,  // 只包含选中的自定义节点
-                chained_config: chainedConfig,
+                chained_config: cleanedChainedConfig,  // 使用清理后的链式代理配置
                 github_token: githubToken,
                 reuse_gist: reuseGist,
                 save_config: true,
@@ -1339,8 +1473,141 @@ async function saveTokenFromModal() {
 }
 
 
+// 编辑自定义节点
+function editCustomNode(nodeId) {
+    const node = customNodes.find(n => n._id === nodeId);
+    if (!node) {
+        showToast('节点不存在', 'error');
+        return;
+    }
+    
+    // 创建编辑对话框
+    const modalHtml = `
+        <div id="editNodeModal" class="modal" style="display: flex;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>编辑节点</h3>
+                    <button class="close-btn" onclick="closeEditNodeModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>节点名称:</label>
+                        <input type="text" id="editNodeName" value="${escapeHtml(node.name)}" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>服务器地址:</label>
+                        <input type="text" id="editNodeServer" value="${node.server}" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>端口:</label>
+                        <input type="number" id="editNodePort" value="${node.port}" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>密码:</label>
+                        <input type="text" id="editNodePassword" value="${node.password || ''}" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>加密方式:</label>
+                        <input type="text" id="editNodeCipher" value="${node.cipher || ''}" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" onclick="saveEditedNode('${nodeId}')">保存</button>
+                    <button class="btn btn-secondary" onclick="closeEditNodeModal()">取消</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // 添加到页面
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+// 保存编辑的节点
+function saveEditedNode(nodeId) {
+    const nodeIndex = customNodes.findIndex(n => n._id === nodeId);
+    if (nodeIndex === -1) {
+        showToast('节点不存在', 'error');
+        return;
+    }
+    
+    // 获取编辑后的值
+    const editedNode = {
+        ...customNodes[nodeIndex],
+        name: getElement('editNodeName').value.trim(),
+        server: getElement('editNodeServer').value.trim(),
+        port: parseInt(getElement('editNodePort').value),
+        password: getElement('editNodePassword').value.trim(),
+        cipher: getElement('editNodeCipher').value.trim()
+    };
+    
+    // 验证必填字段
+    if (!editedNode.name || !editedNode.server || !editedNode.port) {
+        showToast('请填写必填字段', 'error');
+        return;
+    }
+    
+    // 更新节点
+    customNodes[nodeIndex] = editedNode;
+    
+    // 如果节点在选中列表中，也要更新
+    const selectedIndex = selectedProxies.findIndex(p => p._id === nodeId);
+    if (selectedIndex !== -1) {
+        selectedProxies[selectedIndex] = editedNode;
+    }
+    
+    // 关闭对话框
+    closeEditNodeModal();
+    
+    // 刷新显示
+    displayProxies();
+    showToast('节点已更新', 'success');
+}
+
+// 关闭编辑节点对话框
+function closeEditNodeModal() {
+    const modal = getElement('editNodeModal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// 删除自定义节点
+function deleteCustomNode(nodeId) {
+    const node = customNodes.find(n => n._id === nodeId);
+    if (!node) {
+        showToast('节点不存在', 'error');
+        return;
+    }
+    
+    if (!confirm(`确定要删除节点 "${node.name}" 吗？`)) {
+        return;
+    }
+    
+    // 从自定义节点列表中删除
+    customNodes = customNodes.filter(n => n._id !== nodeId);
+    
+    // 从选中列表中删除
+    selectedProxies = selectedProxies.filter(p => p._id !== nodeId);
+    
+    // 从链式代理配置中删除
+    if (chainedConfig.hasOwnProperty(nodeId)) {
+        delete chainedConfig[nodeId];
+    }
+    
+    // 刷新显示
+    displayProxies();
+    updateGenerateButtonState();
+    showToast('节点已删除', 'success');
+}
+
+
 // 全局函数（供 HTML 内联事件使用）
 window.addUrlFromHistory = addUrlFromHistory;
+window.deleteUrlFromHistory = deleteUrlFromHistory;
+window.editUrlAlias = editUrlAlias;
 window.toggleUrl = toggleUrl;
 window.toggleProxy = toggleProxy;
 window.toggleChainedProxy = toggleChainedProxy;
@@ -1353,3 +1620,7 @@ window.renameGist = renameGist;
 window.deleteGist = deleteGist;
 window.renameGistByIndex = renameGistByIndex;
 window.deleteGistByIndex = deleteGistByIndex;
+window.editCustomNode = editCustomNode;
+window.deleteCustomNode = deleteCustomNode;
+window.saveEditedNode = saveEditedNode;
+window.closeEditNodeModal = closeEditNodeModal;
