@@ -4,6 +4,17 @@ import yaml
 import re
 from urllib.parse import urlparse, parse_qs, unquote
 from typing import List, Dict, Any, Optional
+from functools import wraps
+
+def safe_parse(func):
+    """解析函数的安全装饰器，统一异常处理"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            return None
+    return wrapper
 
 class SubscriptionParser:
     """订阅内容解析器"""
@@ -51,164 +62,156 @@ class SubscriptionParser:
         return proxies
         
     @staticmethod
+    @safe_parse
     def parse_ss(url: str) -> Optional[Dict[str, Any]]:
         """解析 Shadowsocks 链接"""
-        try:
-            # 移除 ss:// 前缀
-            content = url[5:]
+        # 移除 ss:// 前缀
+        content = url[5:]
+        
+        # 分离备注
+        if '#' in content:
+            content, remark = content.split('#', 1)
+            remark = unquote(remark)
+        else:
+            remark = "SS"
             
-            # 分离备注
-            if '#' in content:
-                content, remark = content.split('#', 1)
-                remark = unquote(remark)
-            else:
-                remark = "SS"
+        # 解析主体部分
+        if '@' in content:
+            # 新格式: method:password@server:port
+            auth, server_info = content.split('@', 1)
+            server, port = server_info.split(':', 1)
+            
+            # 解码认证信息
+            try:
+                auth = base64.b64decode(auth + '==').decode('utf-8')
+            except:
+                pass
                 
-            # 解析主体部分
-            if '@' in content:
-                # 新格式: method:password@server:port
-                auth, server_info = content.split('@', 1)
+            if ':' in auth:
+                method, password = auth.split(':', 1)
+            else:
+                method = 'aes-256-gcm'
+                password = auth
+        else:
+            # 旧格式: base64(method:password@server:port)
+            try:
+                decoded = base64.b64decode(content + '==').decode('utf-8')
+                auth, server_info = decoded.split('@', 1)
                 server, port = server_info.split(':', 1)
+                method, password = auth.split(':', 1)
+            except:
+                return None
                 
-                # 解码认证信息
-                try:
-                    auth = base64.b64decode(auth + '==').decode('utf-8')
-                except:
-                    pass
-                    
-                if ':' in auth:
-                    method, password = auth.split(':', 1)
-                else:
-                    method = 'aes-256-gcm'
-                    password = auth
-            else:
-                # 旧格式: base64(method:password@server:port)
-                try:
-                    decoded = base64.b64decode(content + '==').decode('utf-8')
-                    auth, server_info = decoded.split('@', 1)
-                    server, port = server_info.split(':', 1)
-                    method, password = auth.split(':', 1)
-                except:
-                    return None
-                    
-            return {
-                'name': remark,
-                'type': 'ss',
-                'server': server,
-                'port': int(port),
-                'cipher': method,
-                'password': password,
-                'udp': True
-            }
-        except:
-            return None
+        return {
+            'name': remark,
+            'type': 'ss',
+            'server': server,
+            'port': int(port),
+            'cipher': method,
+            'password': password,
+            'udp': True
+        }
             
     @staticmethod
+    @safe_parse
     def parse_vmess(url: str) -> Optional[Dict[str, Any]]:
         """解析 VMess 链接"""
-        try:
-            # 移除 vmess:// 前缀
-            content = url[8:]
-            
-            # Base64 解码
-            decoded = base64.b64decode(content + '==').decode('utf-8')
-            config = json.loads(decoded)
-            
-            proxy = {
-                'name': config.get('ps', 'VMess'),
-                'type': 'vmess',
-                'server': config.get('add', ''),
-                'port': int(config.get('port', 443)),
-                'uuid': config.get('id', ''),
-                'alterId': int(config.get('aid', 0)),
-                'cipher': 'auto',
-                'udp': True
-            }
-            
-            # 添加 TLS 配置
-            if config.get('tls') == 'tls':
-                proxy['tls'] = True
-                if config.get('sni'):
-                    proxy['servername'] = config.get('sni')
+        # 移除 vmess:// 前缀
+        content = url[8:]
+        
+        # Base64 解码
+        decoded = base64.b64decode(content + '==').decode('utf-8')
+        config = json.loads(decoded)
+        
+        proxy = {
+            'name': config.get('ps', 'VMess'),
+            'type': 'vmess',
+            'server': config.get('add', ''),
+            'port': int(config.get('port', 443)),
+            'uuid': config.get('id', ''),
+            'alterId': int(config.get('aid', 0)),
+            'cipher': 'auto',
+            'udp': True
+        }
+        
+        # 添加 TLS 配置
+        if config.get('tls') == 'tls':
+            proxy['tls'] = True
+            if config.get('sni'):
+                proxy['servername'] = config.get('sni')
+                
+        # 添加传输层配置
+        network = config.get('net', 'tcp')
+        if network != 'tcp':
+            proxy['network'] = network
+            if network == 'ws':
+                ws_opts = {}
+                if config.get('path'):
+                    ws_opts['path'] = config.get('path')
+                if config.get('host'):
+                    ws_opts['headers'] = {'Host': config.get('host')}
+                if ws_opts:
+                    proxy['ws-opts'] = ws_opts
                     
-            # 添加传输层配置
-            network = config.get('net', 'tcp')
-            if network != 'tcp':
-                proxy['network'] = network
-                if network == 'ws':
-                    ws_opts = {}
-                    if config.get('path'):
-                        ws_opts['path'] = config.get('path')
-                    if config.get('host'):
-                        ws_opts['headers'] = {'Host': config.get('host')}
-                    if ws_opts:
-                        proxy['ws-opts'] = ws_opts
-                        
-            return proxy
-        except:
-            return None
+        return proxy
             
     @staticmethod
+    @safe_parse
     def parse_trojan(url: str) -> Optional[Dict[str, Any]]:
         """解析 Trojan 链接"""
-        try:
-            parsed = urlparse(url)
+        parsed = urlparse(url)
+        
+        # 获取备注
+        remark = "Trojan"
+        if '#' in url:
+            remark = unquote(url.split('#')[-1])
             
-            # 获取备注
-            remark = "Trojan"
-            if '#' in url:
-                remark = unquote(url.split('#')[-1])
-                
-            proxy = {
-                'name': remark,
-                'type': 'trojan',
-                'server': parsed.hostname,
-                'port': parsed.port or 443,
-                'password': parsed.username,
-                'udp': True,
-                'skip-cert-verify': True
-            }
+        proxy = {
+            'name': remark,
+            'type': 'trojan',
+            'server': parsed.hostname,
+            'port': parsed.port or 443,
+            'password': parsed.username,
+            'udp': True,
+            'skip-cert-verify': True
+        }
+        
+        # 解析查询参数
+        params = parse_qs(parsed.query)
+        if 'sni' in params:
+            proxy['sni'] = params['sni'][0]
             
-            # 解析查询参数
-            params = parse_qs(parsed.query)
-            if 'sni' in params:
-                proxy['sni'] = params['sni'][0]
-                
-            return proxy
-        except:
-            return None
+        return proxy
             
     @staticmethod
+    @safe_parse
     def parse_hysteria2(url: str) -> Optional[Dict[str, Any]]:
         """解析 Hysteria2 链接"""
-        try:
-            # 解析 URL
-            parsed = urlparse(url)
+        # 解析 URL
+        parsed = urlparse(url)
+        
+        # 获取备注
+        remark = "Hysteria2"
+        if '#' in url:
+            remark = unquote(url.split('#')[-1])
             
-            # 获取备注
-            remark = "Hysteria2"
-            if '#' in url:
-                remark = unquote(url.split('#')[-1])
-                
-            proxy = {
-                'name': remark,
-                'type': 'hysteria2',
-                'server': parsed.hostname,
-                'port': parsed.port or 443,
-                'password': parsed.username or parsed.password,
-                'skip-cert-verify': True
-            }
+        proxy = {
+            'name': remark,
+            'type': 'hysteria2',
+            'server': parsed.hostname,
+            'port': parsed.port or 443,
+            'password': parsed.username or parsed.password,
+            'skip-cert-verify': True
+        }
+        
+        # 解析查询参数
+        params = parse_qs(parsed.query)
+        if 'sni' in params:
+            proxy['sni'] = params['sni'][0]
+        if 'insecure' in params and params['insecure'][0] == '1':
+            proxy['skip-cert-verify'] = True
             
-            # 解析查询参数
-            params = parse_qs(parsed.query)
-            if 'sni' in params:
-                proxy['sni'] = params['sni'][0]
-            if 'insecure' in params and params['insecure'][0] == '1':
-                proxy['skip-cert-verify'] = True
-                
-            return proxy
-        except:
-            return None
+        return proxy
     
     @staticmethod
     def parse_clash_nodes(content: str) -> List[Dict[str, Any]]:
@@ -253,6 +256,7 @@ class SubscriptionParser:
         return nodes
     
     @staticmethod
+    @safe_parse
     def _parse_clash_line(line: str) -> Optional[Dict[str, Any]]:
         """解析单行 Clash 格式节点"""
         line = line.strip()
@@ -263,53 +267,49 @@ class SubscriptionParser:
         
         # 尝试解析 { } 格式
         if line.startswith('{') and line.endswith('}'):
-            try:
-                # 移除大括号
-                content = line[1:-1].strip()
+            # 移除大括号
+            content = line[1:-1].strip()
+            
+            # 解析键值对
+            node = {}
+            
+            # 使用正则表达式解析键值对
+            # 支持格式: key: value 或 key: "value"
+            pattern = r'(\w+[-\w]*)\s*:\s*([^,]+?)(?:\s*,\s*|\s*$)'
+            matches = re.findall(pattern, content)
+            
+            for key, value in matches:
+                # 清理值
+                value = value.strip()
                 
-                # 解析键值对
-                node = {}
+                # 移除引号
+                if (value.startswith('"') and value.endswith('"')) or \
+                   (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
                 
-                # 使用正则表达式解析键值对
-                # 支持格式: key: value 或 key: "value"
-                pattern = r'(\w+[-\w]*)\s*:\s*([^,]+?)(?:\s*,\s*|\s*$)'
-                matches = re.findall(pattern, content)
-                
-                for key, value in matches:
-                    # 清理值
-                    value = value.strip()
-                    
-                    # 移除引号
-                    if (value.startswith('"') and value.endswith('"')) or \
-                       (value.startswith("'") and value.endswith("'")):
-                        value = value[1:-1]
-                    
-                    # 转换布尔值
-                    if value.lower() == 'true':
-                        value = True
-                    elif value.lower() == 'false':
-                        value = False
-                    # 转换数字
-                    elif value.replace('-', '').isdigit():
-                        # 处理端口范围，如 20000-50000
-                        if '-' in value and not value.startswith('-'):
-                            value = value  # 保持字符串格式
-                        else:
-                            value = int(value)
-                    # 尝试转换浮点数
+                # 转换布尔值
+                if value.lower() == 'true':
+                    value = True
+                elif value.lower() == 'false':
+                    value = False
+                # 转换数字
+                elif value.replace('-', '').isdigit():
+                    # 处理端口范围，如 20000-50000
+                    if '-' in value and not value.startswith('-'):
+                        value = value  # 保持字符串格式
                     else:
-                        try:
-                            value = float(value)
-                        except:
-                            pass  # 保持字符串
-                    
-                    node[key] = value
+                        value = int(value)
+                # 尝试转换浮点数
+                else:
+                    try:
+                        value = float(value)
+                    except:
+                        pass  # 保持字符串
                 
-                # 确保有必要的字段
-                if 'name' in node and 'type' in node and 'server' in node:
-                    return node
-            except Exception as e:
-                print(f"解析 Clash 节点失败: {e}")
-                pass
+                node[key] = value
+            
+            # 确保有必要的字段
+            if 'name' in node and 'type' in node and 'server' in node:
+                return node
         
         return None

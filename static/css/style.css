@@ -1176,3 +1176,97 @@ footer i {
 ::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
+
+/* GitHub Token Section */
+.github-token-section {
+    background: white;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 25px;
+    margin-bottom: 30px;
+}
+
+.token-config-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.token-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.token-status-display {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.token-status-display span {
+    font-weight: 500;
+}
+
+.status-icon {
+    font-size: 1.2em;
+}
+
+.token-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Token Configuration Modal */
+.token-input-section {
+    margin-bottom: 20px;
+}
+
+.token-input-section label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: var(--dark-color);
+}
+
+.token-input-group {
+    display: flex;
+    gap: 5px;
+}
+
+.token-input-group input {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.token-input-group .btn {
+    padding: 12px 15px;
+}
+
+.token-save-options {
+    margin: 15px 0;
+}
+
+.token-save-options label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: normal;
+    cursor: pointer;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}

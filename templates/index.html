@@ -167,6 +167,35 @@
                 </div>
             </section>
 
+            <!-- GitHub Token 配置 -->
+            <section class="github-token-section">
+                <h2><i class="fab fa-github"></i> GitHub Token 配置</h2>
+                <div class="token-config-grid">
+                    <div class="token-status">
+                        <div class="token-status-display">
+                            <span id="tokenStatusText">未配置</span>
+                            <span id="tokenStatusIcon" class="status-icon">
+                                <i class="fas fa-times-circle" style="color: #e74c3c;"></i>
+                            </span>
+                        </div>
+                        <div class="token-actions">
+                            <button id="configureTokenBtn" class="btn btn-secondary">
+                                <i class="fas fa-key"></i> 配置 Token
+                            </button>
+                            <button id="viewTokenBtn" class="btn btn-small" style="display: none;">
+                                <i class="fas fa-eye"></i> 查看
+                            </button>
+                            <button id="editTokenBtn" class="btn btn-small" style="display: none;">
+                                <i class="fas fa-edit"></i> 修改
+                            </button>
+                        </div>
+                    </div>
+                    <small class="help-text">
+                        Token 需要有 gist 权限，<a href="https://github.com/settings/tokens" target="_blank">点击生成</a>
+                    </small>
+                </div>
+            </section>
+
             <!-- 配置选项 -->
             <section class="config-section">
                 <h2><i class="fas fa-sliders-h"></i> 上传配置</h2>
@@ -239,6 +268,49 @@
     <!-- Toast 通知 -->
     <div id="toast" class="toast"></div>
 
+    <!-- GitHub Token 配置对话框 -->
+    <div id="tokenConfigModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fab fa-github"></i> GitHub Token 配置</h3>
+                <button class="modal-close" onclick="closeTokenModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="token-input-section">
+                    <label for="githubTokenInput">GitHub Token:</label>
+                    <div class="token-input-group">
+                        <input type="password" id="githubTokenInput" placeholder="输入 GitHub Token">
+                        <button id="toggleTokenVisibility" class="btn btn-small" type="button">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                    <div class="token-save-options" style="margin: 15px 0;">
+                        <label>
+                            <input type="checkbox" id="saveTokenToEnvModal" checked>
+                            保存到 .env 文件（推荐，重启后仍有效）
+                        </label>
+                        <small class="help-text" style="display: block; margin-top: 5px;">
+                            不勾选则仅保存到浏览器本地存储
+                        </small>
+                    </div>
+                    <small class="help-text">
+                        Token 需要有 gist 权限，<a href="https://github.com/settings/tokens" target="_blank">点击生成新 Token</a>
+                    </small>
+                </div>
+                <div class="modal-actions">
+                    <button id="saveTokenModalBtn" class="btn btn-primary">
+                        <i class="fas fa-save"></i> 保存
+                    </button>
+                    <button onclick="closeTokenModal()" class="btn btn-secondary">
+                        取消
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Gist 管理对话框 -->
     <div id="gistManagementModal" class="modal" style="display: none;">
         <div class="modal-content">
@@ -249,20 +321,6 @@
                 </button>
             </div>
             <div class="modal-body">
-                <!-- GitHub Token 配置 -->
-                <div class="gist-token-section">
-                    <h4>GitHub Token 配置</h4>
-                    <div class="token-input-group">
-                        <input type="password" id="githubTokenModal" placeholder="输入 GitHub Token">
-                        <button id="saveTokenBtn" class="btn btn-primary">
-                            <i class="fas fa-save"></i> 保存
-                        </button>
-                    </div>
-                    <small class="help-text">Token 需要有 gist 权限，<a href="https://github.com/settings/tokens" target="_blank">点击生成</a></small>
-                </div>
-                
-                <hr style="margin: 20px 0;">
-                
                 <!-- 添加已有 Gist -->
                 <div class="gist-add-section">
                     <h4>添加已有 Gist</h4>

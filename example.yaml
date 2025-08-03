@@ -455,6 +455,7 @@ rules:
   - DOMAIN-SUFFIX,stripe.com,AI
   - DOMAIN-SUFFIX,turn.livekit.cloud,AI
   - DOMAIN-KEYWORD,claude,AI
+  - DOMAIN-KEYWORD,anthropic,AI
 
   # Google AI 相关
   - DOMAIN,browser-intake-datadoghq.com,AI

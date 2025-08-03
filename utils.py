@@ -26,16 +26,27 @@ class ClashConfigManager:
         self.chained_config_file = 'data/chained_proxy_config.json'
         self._gist_configs = None  # 缓存 Gist 配置
         
+    def _read_json_file(self, file_path: str, default_value=None):
+        """通用JSON文件读取函数"""
+        if not os.path.exists(file_path):
+            return default_value if default_value is not None else {}
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return default_value if default_value is not None else {}
+            
+    def _write_json_file(self, file_path: str, data: dict, ensure_dir: bool = True):
+        """通用JSON文件写入函数"""
+        if ensure_dir:
+            os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else '.', exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
     def load_saved_urls(self) -> List[str]:
         """加载保存的 URL 历史"""
-        if os.path.exists(self.urls_file):
-            try:
-                with open(self.urls_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return data.get('urls', [])
-            except:
-                pass
-        return []
+        data = self._read_json_file(self.urls_file, {'urls': []})
+        return data.get('urls', [])
         
     def save_urls(self, urls: List[str]):
         """保存 URL 到历史记录"""
@@ -43,11 +54,8 @@ class ClashConfigManager:
         # 合并新旧 URL，去重
         all_urls = list(set(existing_urls + urls))
         
-        # 确保目录存在
-        os.makedirs('data', exist_ok=True)
-        
-        with open(self.urls_file, 'w', encoding='utf-8') as f:
-            json.dump({'urls': all_urls, 'updated': datetime.now().isoformat()}, f, ensure_ascii=False, indent=2)
+        data = {'urls': all_urls, 'updated': datetime.now().isoformat()}
+        self._write_json_file(self.urls_file, data)
             
     def test_url_availability(self, url: str) -> Tuple[bool, str]:
         """测试 URL 是否可用"""
@@ -125,28 +133,18 @@ class ClashConfigManager:
         
     def load_chained_proxy_config(self) -> Dict[str, Any]:
         """加载链式代理配置"""
-        if os.path.exists(self.chained_config_file):
-            try:
-                with open(self.chained_config_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                pass
-        return {
+        default_config = {
             'version': '1.0',
             'updated': datetime.now().isoformat(),
             'custom_nodes': [],  # 用户手动添加的节点
             'chained_nodes': {},  # {node_id: dialer_proxy_name} 映射
         }
+        return self._read_json_file(self.chained_config_file, default_config)
         
     def save_chained_proxy_config(self, config: Dict[str, Any]):
         """保存链式代理配置"""
         config['updated'] = datetime.now().isoformat()
-        
-        # 确保目录存在
-        os.makedirs('data', exist_ok=True)
-        
-        with open(self.chained_config_file, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
+        self._write_json_file(self.chained_config_file, config)
             
     def apply_dialer_proxy_config(self, nodes: List[Dict[str, Any]], chained_config: Dict[str, str]) -> List[Dict[str, Any]]:
         """为节点应用 dialer-proxy 配置
