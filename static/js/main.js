@@ -6,6 +6,8 @@ let customNodes = [];
 let customUrlList = []; // 自定义节点的URL列表
 let chainedConfig = {}; // {node_id: dialer_proxy_name}
 let config = {};
+let gistList = [];
+let currentGist = null;
 
 // DOM 元素
 const elements = {
@@ -44,9 +46,22 @@ const elements = {
     clearConfigBtn: document.getElementById('clearConfigBtn'),
     
     // 配置相关
-    githubToken: document.getElementById('githubToken'),
     reuseGist: document.getElementById('reuseGist'),
+    gistSelector: document.getElementById('gistSelector'),
+    manageGistsBtn: document.getElementById('manageGistsBtn'),
     generateConfigBtn: document.getElementById('generateConfigBtn'),
+    
+    // Gist 管理相关
+    gistManagementModal: document.getElementById('gistManagementModal'),
+    gistList: document.getElementById('gistList'),
+    gistSelectorContainer: document.getElementById('gistSelectorContainer'),
+    newGistNameContainer: document.getElementById('newGistNameContainer'),
+    newGistNameInput: document.getElementById('newGistNameInput'),
+    githubTokenModal: document.getElementById('githubTokenModal'),
+    saveTokenBtn: document.getElementById('saveTokenBtn'),
+    addGistName: document.getElementById('addGistName'),
+    addGistId: document.getElementById('addGistId'),
+    addExistingGistBtn: document.getElementById('addExistingGistBtn'),
     
     // 结果相关
     resultSection: document.getElementById('resultSection'),
@@ -65,6 +80,7 @@ const elements = {
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     loadConfig();
+    loadGists();
     loadHistory();
     loadChainedProxyConfig();
     setupEventListeners();
@@ -107,6 +123,31 @@ function setupEventListeners() {
     
     // 复制订阅链接
     elements.copyBtn.addEventListener('click', copySubscriptionUrl);
+    
+    // Gist 管理
+    elements.manageGistsBtn.addEventListener('click', openGistModal);
+    elements.gistSelector.addEventListener('change', onGistSelect);
+    elements.saveTokenBtn.addEventListener('click', saveGithubToken);
+    elements.addExistingGistBtn.addEventListener('click', addExistingGist);
+    
+    // 重用 Gist 复选框变化时切换显示
+    elements.reuseGist.addEventListener('change', toggleGistOptions);
+}
+
+// 切换 Gist 选项显示
+function toggleGistOptions() {
+    const reuseGist = elements.reuseGist.checked;
+    
+    if (reuseGist) {
+        // 显示 Gist 选择器，隐藏新名称输入框
+        elements.gistSelectorContainer.style.display = 'block';
+        elements.newGistNameContainer.style.display = 'none';
+        elements.newGistNameInput.value = ''; // 清空输入
+    } else {
+        // 隐藏 Gist 选择器，显示新名称输入框
+        elements.gistSelectorContainer.style.display = 'none';
+        elements.newGistNameContainer.style.display = 'block';
+    }
 }
 
 // 加载配置
@@ -122,9 +163,215 @@ async function loadConfig() {
             if (config.has_gist_id && config.reuse_gist) {
                 showToast('已启用 Gist 重用模式', 'success');
             }
+            
+            // 初始化界面显示状态
+            toggleGistOptions();
+        }
+        
+        // 加载保存的 GitHub Token
+        const savedToken = localStorage.getItem('github_token');
+        if (savedToken && elements.githubTokenModal) {
+            elements.githubTokenModal.value = savedToken;
         }
     } catch (error) {
         console.error('加载配置失败:', error);
+    }
+}
+
+// 保存 GitHub Token
+function saveGithubToken() {
+    const token = elements.githubTokenModal.value.trim();
+    
+    if (!token) {
+        showToast('请输入 GitHub Token', 'error');
+        return;
+    }
+    
+    // 保存到 localStorage
+    localStorage.setItem('github_token', token);
+    showToast('GitHub Token 已保存', 'success');
+}
+
+// 添加已有 Gist
+async function addExistingGist() {
+    const name = elements.addGistName.value.trim();
+    const gistId = elements.addGistId.value.trim();
+    
+    if (!name || !gistId) {
+        showToast('请输入 Gist 名称和 ID', 'error');
+        return;
+    }
+    
+    try {
+        showLoading('正在添加 Gist...');
+        
+        const response = await fetch('/api/gists', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, gist_id: gistId })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(data.message, 'success');
+            elements.addGistName.value = '';
+            elements.addGistId.value = '';
+            await loadGists();
+            updateGistList();
+        } else {
+            showToast(data.error, 'error');
+        }
+    } catch (error) {
+        showToast('添加 Gist 失败: ' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// 加载 Gist 列表
+async function loadGists() {
+    try {
+        const response = await fetch('/api/gists');
+        const data = await response.json();
+        
+        if (data.success) {
+            gistList = data.gists;
+            updateGistSelector();
+            
+            // 获取当前选中的 Gist
+            const currentResponse = await fetch('/api/current-gist');
+            const currentData = await currentResponse.json();
+            
+            if (currentData.success && currentData.current_name) {
+                currentGist = currentData.current_name;
+                elements.gistSelector.value = currentGist;
+            }
+        }
+    } catch (error) {
+        console.error('加载 Gist 列表失败:', error);
+    }
+}
+
+// 更新 Gist 选择器
+function updateGistSelector() {
+    elements.gistSelector.innerHTML = gistList.map(gist =>
+        `<option value="${gist.name}" ${gist.is_default ? 'data-default="true"' : ''}>
+            ${gist.name}${gist.is_default ? ' (默认)' : ''}
+        </option>`
+    ).join('');
+    
+    // 如果有当前 Gist，选中它
+    if (currentGist) {
+        elements.gistSelector.value = currentGist;
+    }
+}
+
+// Gist 选择变化
+function onGistSelect() {
+    currentGist = elements.gistSelector.value;
+}
+
+// 打开 Gist 管理对话框
+function openGistModal() {
+    elements.gistManagementModal.style.display = 'flex';
+    updateGistList();
+}
+
+// 关闭 Gist 管理对话框
+function closeGistModal() {
+    elements.gistManagementModal.style.display = 'none';
+}
+
+// 更新 Gist 列表显示
+function updateGistList() {
+    if (gistList.length === 0) {
+        elements.gistList.innerHTML = '<div style="text-align: center; color: #999;">暂无 Gist 配置</div>';
+        return;
+    }
+    
+    elements.gistList.innerHTML = gistList.map(gist => `
+        <div class="gist-item ${gist.is_default ? 'is-default' : ''}">
+            <div class="gist-info">
+                <div class="gist-name">
+                    ${escapeHtml(gist.name)}
+                    ${gist.is_default ? '<span class="default-badge">默认</span>' : ''}
+                </div>
+                <div class="gist-id">${gist.id}</div>
+            </div>
+            <div class="gist-actions">
+                <button class="gist-action-btn" onclick="renameGist('${escapeHtml(gist.name)}')">
+                    <i class="fas fa-edit"></i> 重命名
+                </button>
+                ${gistList.length > 1 ? `
+                    <button class="gist-action-btn delete" onclick="deleteGist('${escapeHtml(gist.name)}')">
+                        <i class="fas fa-trash"></i> 删除
+                    </button>
+                ` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+// 重命名 Gist
+async function renameGist(oldName) {
+    const newName = prompt(`重命名 "${oldName}" 为:`, oldName);
+    
+    if (!newName || newName === oldName) {
+        return;
+    }
+    
+    try {
+        showLoading('正在重命名...');
+        
+        const response = await fetch(`/api/gists/${encodeURIComponent(oldName)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_name: newName })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(data.message, 'success');
+            await loadGists();
+            updateGistList();
+        } else {
+            showToast(data.error, 'error');
+        }
+    } catch (error) {
+        showToast('重命名失败: ' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// 删除 Gist
+async function deleteGist(name) {
+    if (!confirm(`确定要删除 Gist "${name}" 吗？`)) {
+        return;
+    }
+    
+    try {
+        showLoading('正在删除...');
+        
+        const response = await fetch(`/api/gists/${encodeURIComponent(name)}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(data.message, 'success');
+            await loadGists();
+            updateGistList();
+        } else {
+            showToast(data.error, 'error');
+        }
+    } catch (error) {
+        showToast('删除失败: ' + error.message, 'error');
+    } finally {
+        hideLoading();
     }
 }
 
@@ -809,8 +1056,18 @@ async function generateConfig() {
         return;
     }
     
-    const githubToken = elements.githubToken.value || undefined;
+    // 从 localStorage 或环境变量获取 GitHub Token
+    const githubToken = localStorage.getItem('github_token') || undefined;
     const reuseGist = elements.reuseGist.checked;
+    let gistName = null;
+    
+    if (reuseGist) {
+        // 重用模式：使用选中的 Gist
+        gistName = elements.gistSelector.value;
+    } else {
+        // 新建模式：使用输入的名称或留空（后端会自动生成）
+        gistName = elements.newGistNameInput.value.trim() || null;
+    }
     
     try {
         showLoading('正在生成配置...');
@@ -827,7 +1084,8 @@ async function generateConfig() {
                 chained_config: chainedConfig,
                 github_token: githubToken,
                 reuse_gist: reuseGist,
-                save_config: true
+                save_config: true,
+                gist_name: gistName  // 指定使用的 Gist
             })
         });
         
@@ -935,3 +1193,6 @@ window.toggleChainedProxy = toggleChainedProxy;
 window.updateDialerProxy = updateDialerProxy;
 window.toggleCustomUrl = toggleCustomUrl;
 window.clearChainedProxyConfig = clearChainedProxyConfig;
+window.closeGistModal = closeGistModal;
+window.renameGist = renameGist;
+window.deleteGist = deleteGist;

@@ -24,6 +24,7 @@ class ClashConfigManager:
         self.urls_file = 'data/urls.json'
         self.template_file = 'example.yaml'
         self.chained_config_file = 'data/chained_proxy_config.json'
+        self._gist_configs = None  # 缓存 Gist 配置
         
     def load_saved_urls(self) -> List[str]:
         """加载保存的 URL 历史"""
@@ -301,7 +302,129 @@ class ClashConfigManager:
             
         return ''.join(result_lines)
         
-    def upload_to_gist(self, content: str, github_token: str, reuse_gist: bool = False) -> str:
+    def load_gist_configs(self) -> Dict[str, str]:
+        """加载所有 Gist 配置
+        
+        Returns:
+            {name: gist_id} 字典
+        """
+        if self._gist_configs is not None:
+            return self._gist_configs
+            
+        configs = {}
+        
+        if os.path.exists(self.gist_id_file):
+            try:
+                with open(self.gist_id_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    
+                # 处理旧格式（单行 gist_id）
+                if len(lines) == 1 and ':' not in lines[0]:
+                    gist_id = lines[0].strip()
+                    if gist_id:
+                        configs['默认'] = gist_id
+                        # 自动转换为新格式
+                        self.save_gist_configs(configs)
+                else:
+                    # 新格式（名称:gist_id）
+                    for line in lines:
+                        line = line.strip()
+                        if line and ':' in line:
+                            name, gist_id = line.split(':', 1)
+                            configs[name.strip()] = gist_id.strip()
+            except Exception as e:
+                print(f"加载 Gist 配置失败: {e}")
+                
+        self._gist_configs = configs
+        return configs
+        
+    def save_gist_configs(self, configs: Dict[str, str]):
+        """保存 Gist 配置
+        
+        Args:
+            configs: {name: gist_id} 字典
+        """
+        lines = []
+        for name, gist_id in configs.items():
+            lines.append(f"{name}:{gist_id}\n")
+            
+        with open(self.gist_id_file, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+            
+        self._gist_configs = configs
+        
+    def get_gist_id(self, name: str = None) -> Optional[str]:
+        """根据名称获取 Gist ID
+        
+        Args:
+            name: Gist 名称，如果为 None 则使用默认
+            
+        Returns:
+            Gist ID 或 None
+        """
+        configs = self.load_gist_configs()
+        
+        if not configs:
+            return None
+            
+        # 如果指定了名称，直接返回
+        if name:
+            return configs.get(name)
+            
+        # 检查环境变量中的默认名称
+        default_name = os.getenv('DEFAULT_GIST_NAME')
+        if default_name and default_name in configs:
+            return configs[default_name]
+            
+        # 返回第一个
+        return list(configs.values())[0]
+        
+    def add_gist_config(self, name: str, gist_id: str):
+        """添加新的 Gist 配置
+        
+        Args:
+            name: Gist 名称
+            gist_id: Gist ID
+        """
+        configs = self.load_gist_configs()
+        configs[name] = gist_id
+        self.save_gist_configs(configs)
+        
+    def remove_gist_config(self, name: str) -> bool:
+        """删除 Gist 配置
+        
+        Args:
+            name: Gist 名称
+            
+        Returns:
+            是否删除成功
+        """
+        configs = self.load_gist_configs()
+        if name in configs:
+            del configs[name]
+            self.save_gist_configs(configs)
+            return True
+        return False
+        
+    def update_gist_name(self, old_name: str, new_name: str) -> bool:
+        """重命名 Gist
+        
+        Args:
+            old_name: 旧名称
+            new_name: 新名称
+            
+        Returns:
+            是否重命名成功
+        """
+        configs = self.load_gist_configs()
+        if old_name in configs and new_name not in configs:
+            configs[new_name] = configs[old_name]
+            del configs[old_name]
+            self.save_gist_configs(configs)
+            return True
+        return False
+        
+    def upload_to_gist(self, content: str, github_token: str, reuse_gist: bool = False, gist_name: str = None) -> str:
         """上传内容到 GitHub Gist"""
         headers = {
             'Authorization': f'token {github_token}',
@@ -310,12 +433,8 @@ class ClashConfigManager:
         
         # 检查是否需要重用 Gist
         gist_id = None
-        if reuse_gist and os.path.exists(self.gist_id_file):
-            try:
-                with open(self.gist_id_file, 'r') as f:
-                    gist_id = f.read().strip()
-            except:
-                pass
+        if reuse_gist:
+            gist_id = self.get_gist_id(gist_name)
                 
         try:
             if gist_id and reuse_gist:
@@ -356,11 +475,16 @@ class ClashConfigManager:
                 )
                 response.raise_for_status()
                 
-                # 如果启用了重用，保存 Gist ID
-                if reuse_gist:
-                    new_gist_id = response.json()['id']
-                    with open(self.gist_id_file, 'w') as f:
-                        f.write(new_gist_id)
+                # 保存新创建的 Gist ID
+                new_gist_id = response.json()['id']
+                
+                # 确定 Gist 名称
+                if not gist_name:
+                    # 如果没有指定名称，使用自动命名格式
+                    gist_name = f"Clash配置_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                
+                # 添加到配置中
+                self.add_gist_config(gist_name, new_gist_id)
             
             gist_data = response.json()
             raw_url = gist_data['files']['clash_config.yaml']['raw_url']
@@ -432,7 +556,8 @@ class ClashConfigManager:
                                    chained_config: Dict[str, str] = None,
                                    github_token: str = None,
                                    reuse_gist: bool = False,
-                                   save_config: bool = True) -> Dict[str, Any]:
+                                   save_config: bool = True,
+                                   gist_name: str = None) -> Dict[str, Any]:
         """根据选择的代理节点生成配置
         
         Args:
@@ -442,6 +567,7 @@ class ClashConfigManager:
             github_token: GitHub Token
             reuse_gist: 是否重用 Gist
             save_config: 是否保存配置到本地
+            gist_name: 指定使用的 Gist 名称
             
         Returns:
             包含结果的字典
@@ -480,7 +606,7 @@ class ClashConfigManager:
             merged_config = self.merge_proxies_to_template(all_nodes, chained_config)
             
             # 上传到 Gist
-            gist_url = self.upload_to_gist(merged_config, github_token, reuse_gist)
+            gist_url = self.upload_to_gist(merged_config, github_token, reuse_gist, gist_name)
             
             result['success'] = True
             result['message'] = f"成功生成配置，包含 {len(all_nodes)} 个节点"

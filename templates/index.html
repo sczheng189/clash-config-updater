@@ -15,6 +15,17 @@
         </header>
 
         <main>
+            <!-- 历史 URL -->
+            <section class="history-section">
+                <h2><i class="fas fa-history"></i> 历史 URL</h2>
+                <p class="help-text" style="margin-bottom: 10px;">
+                    <i class="fas fa-info-circle"></i> 点击下方的历史记录可以自动添加到订阅链接输入框中
+                </p>
+                <div id="historyList" class="history-list">
+                    <!-- 历史 URL 将动态加载 -->
+                </div>
+            </section>
+
             <!-- URL 输入区域 -->
             <section class="url-input-section">
                 <h2><i class="fas fa-link"></i> 订阅链接</h2>
@@ -161,14 +172,29 @@
                 <h2><i class="fas fa-sliders-h"></i> 上传配置</h2>
                 <div class="config-grid">
                     <div class="config-item">
-                        <label for="githubToken">GitHub Token:</label>
-                        <input type="password" id="githubToken" placeholder="输入 GitHub Token（如果未在 .env 中配置）">
-                    </div>
-                    <div class="config-item">
                         <label>
                             <input type="checkbox" id="reuseGist">
                             重用 Gist（保持订阅链接不变）
                         </label>
+                        <small class="help-text">勾选后将更新现有 Gist，不勾选将创建新的 Gist</small>
+                    </div>
+                    <!-- 重用 Gist 时显示的选择器 -->
+                    <div class="config-item" id="gistSelectorContainer" style="display: none;">
+                        <label for="gistSelector">选择要更新的 Gist:</label>
+                        <div class="gist-selector-wrapper">
+                            <select id="gistSelector">
+                                <!-- Gist 列表将动态加载 -->
+                            </select>
+                            <button id="manageGistsBtn" class="btn btn-small" title="管理 Gist">
+                                <i class="fas fa-cog"></i> 管理
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 创建新 Gist 时显示的输入框 -->
+                    <div class="config-item" id="newGistNameContainer" style="display: none;">
+                        <label for="newGistNameInput">新 Gist 名称（可选）:</label>
+                        <input type="text" id="newGistNameInput" placeholder="留空将自动命名：Clash配置_20250803_073000">
+                        <small class="help-text">为新的 Gist 指定一个易记的名称</small>
                     </div>
                 </div>
             </section>
@@ -197,14 +223,6 @@
                     <div id="processDetails"></div>
                 </div>
             </section>
-
-            <!-- 历史 URL -->
-            <section class="history-section">
-                <h2><i class="fas fa-history"></i> 历史 URL</h2>
-                <div id="historyList" class="history-list">
-                    <!-- 历史 URL 将动态加载 -->
-                </div>
-            </section>
         </main>
 
         <footer>
@@ -220,6 +238,56 @@
 
     <!-- Toast 通知 -->
     <div id="toast" class="toast"></div>
+
+    <!-- Gist 管理对话框 -->
+    <div id="gistManagementModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-code-branch"></i> Gist 管理</h3>
+                <button class="modal-close" onclick="closeGistModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- GitHub Token 配置 -->
+                <div class="gist-token-section">
+                    <h4>GitHub Token 配置</h4>
+                    <div class="token-input-group">
+                        <input type="password" id="githubTokenModal" placeholder="输入 GitHub Token">
+                        <button id="saveTokenBtn" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存
+                        </button>
+                    </div>
+                    <small class="help-text">Token 需要有 gist 权限，<a href="https://github.com/settings/tokens" target="_blank">点击生成</a></small>
+                </div>
+                
+                <hr style="margin: 20px 0;">
+                
+                <!-- 添加已有 Gist -->
+                <div class="gist-add-section">
+                    <h4>添加已有 Gist</h4>
+                    <div class="gist-add-form">
+                        <input type="text" id="addGistName" placeholder="Gist 名称（如：生产环境）">
+                        <input type="text" id="addGistId" placeholder="Gist ID（从 URL 中获取）">
+                        <button id="addExistingGistBtn" class="btn btn-secondary">
+                            <i class="fas fa-plus"></i> 添加
+                        </button>
+                    </div>
+                    <small class="help-text">从 Gist URL 中复制 ID，如：gist.github.com/username/<strong>8171e205422588ce7bdce35ec70a1fdc</strong></small>
+                </div>
+                
+                <hr style="margin: 20px 0;">
+                
+                <!-- Gist 列表 -->
+                <div class="gist-list-section">
+                    <h4>Gist 列表</h4>
+                    <div id="gistList" class="gist-list">
+                        <!-- Gist 列表将动态生成 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/js/main.js"></script>
 </body>

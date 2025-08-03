@@ -35,7 +35,12 @@ if exist venv (
 )
 
 echo.
-echo 正在安装新的依赖包（Flask）...
+echo 确保使用正确的镜像源...
+pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
+pip config set install.trusted-host mirrors.aliyun.com
+
+echo.
+echo 正在检查并安装依赖包...
 pip install -r requirements.txt
 
 echo.
